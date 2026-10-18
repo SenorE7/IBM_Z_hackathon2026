@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ghazipur Landfill Fire &amp; Contamination Shield</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, Arial, sans-serif; color: #1a1a1a; }
+    header { background: #12343b; color: #fff; padding: 10px 16px; }
+    header h1 { margin: 0; font-size: 18px; }
+    header .sim { background: #e67e22; color: #fff; font-size: 11px; font-weight: 700;
+      padding: 2px 8px; border-radius: 10px; margin-left: 8px; }
+    .wrap { display: flex; height: calc(100vh - 86px); }
+    #map { flex: 1 1 60%; }
+    .side { flex: 1 1 40%; overflow-y: auto; padding: 12px 16px; background: #f7f7f5; }
+    .controls { padding: 8px 16px; background: #1e4d57; color: #fff; display: flex;
+      align-items: center; gap: 12px; flex-wrap: wrap; }
+    .controls input[type=range] { width: 220px; }
+    .pill { font-size: 12px; background: rgba(255,255,255,.15); padding: 3px 8px; border-radius: 10px; }
+    .pill.big { font-size: 14px; font-weight: 700; padding: 4px 10px; transition: background .2s; }
+    .pill { cursor: help; }
+    header .subtitle { font-size: 12px; font-weight: 400; opacity: .85; margin-top: 3px; }
+    .desc { font-size: 11px; color: #666; margin: 0 0 7px; line-height: 1.35; }
+    .maphint { position: absolute; z-index: 500; bottom: 8px; left: 8px; background: rgba(255,255,255,.9);
+      border: 1px solid #ddd; border-radius: 6px; padding: 4px 8px; font-size: 11px; color: #333; max-width: 260px; }
+    #map { position: relative; }
+    .card { background: #fff; border: 1px solid #e2e2e0; border-radius: 8px; padding: 10px 12px;
+      margin-bottom: 12px; }
+    .card h2 { margin: 0 0 6px; font-size: 14px; text-transform: uppercase; letter-spacing: .04em; color: #12343b; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { text-align: left; padding: 3px 6px; border-bottom: 1px solid #eee; }
+    pre { white-space: pre-wrap; font-size: 12px; margin: 0; font-family: ui-monospace, Consolas, monospace; }
+    .alert { background: #fdecea; border-color: #f5c6cb; }
+    .legend { font-size: 12px; }
+    .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Ghazipur Landfill Fire &amp; Contamination Shield
+      <span class="sim">SIMULATED SENSOR DATA</span>
+    </h1>
+    <div class="subtitle">Pipeline: <b>Predict</b> (Model A, ML fire risk) &rarr;
+      <b>Decide</b> (Model B, routing optimiser) &rarr; <b>Generate</b> (Model C, GenAI alerts).
+      Data auto-advances 1 hour every 3 s. Drag the Heatwave slider to stress-test.</div>
+  </header>
+
+  <div class="controls">
+    <label title="Use real current Ghazipur weather (Open-Meteo) for air temp, humidity, wind and drought. Landfill surface temp + methane stay simulated."><input type="checkbox" id="live" /> Live weather</label>
+    <label title="Simulates a heatwave: raises temperature and lowers humidity before the model predicts, so fire risk rises.">Heatwave: <input id="heat" type="range" min="0" max="100" value="0" /></label>
+    <span class="pill" id="heatval" title="Current heatwave intensity (0 = normal conditions, 100 = extreme heatwave).">0%</span>
+    <span class="pill big" id="maxrisk" title="Highest predicted 24h fire risk across the 12 zones. Pill colour = alert level.">max risk --</span>
+    <span class="pill" id="atrisk" title="How many of the 12 zones are amber or red (elevated fire risk).">-- zones at risk</span>
+    <span class="pill" id="target" title="Tonnes the crews aim to excavate today. Rises with the heatwave so more fire-prone waste is removed.">excavate -- t/day</span>
+    <span class="pill" id="unalloc" title="Excavated tonnes that exceed all plant capacity today and cannot be processed.">unallocated -- t</span>
+    <span class="pill" id="clock" title="Simulated date/time of the sensor reading currently shown.">--</span>
+    <span class="pill" id="wind" title="Wind direction (degrees it blows FROM) at the highest-risk zone. Drives the downwind smoke alert.">wind --</span>
+    <span class="pill" id="wmode" title="Weather source: SIMULATED, or LIVE from Open-Meteo. Landfill surface temp + methane are always simulated.">weather --</span>
+    <span class="legend" title="Zone circle colour = fire-risk level. Circle size grows with risk.">
+      <span class="dot" style="background:#2ecc71"></span>low
+      <span class="dot" style="background:#f39c12"></span>medium
+      <span class="dot" style="background:#e74c3c"></span>high
+    </span>
+  </div>
+
+  <div class="wrap">
+    <div id="map">
+      <div class="maphint">Circles = 12 landfill zones (colour &amp; size = fire risk).
+        Grey lines = excavated waste trucked to plants (thickness = tonnes).
+        Dark markers = processing plants.</div>
+    </div>
+    <div class="side">
+      <div class="card alert">
+        <h2>Resident smoke / health alert</h2>
+        <p class="desc">Model C (GenAI): a plain-English warning for neighbourhoods
+          <b>downwind</b> of the highest-risk zone, based on wind direction.</p>
+        <pre id="alert">...</pre>
+      </div>
+      <div class="card">
+        <h2>Dig order (riskiest first)</h2>
+        <p class="desc">Models A + B: which zones to excavate today, ranked by predicted
+          fire risk so the most dangerous waste is removed first.</p>
+        <table id="dig"></table>
+      </div>
+      <div class="card">
+        <h2>Routing table</h2>
+        <p class="desc">Model B (optimiser): where each waste fraction is sent &mdash; chosen to
+          minimise trucking distance while never exceeding a plant's capacity.</p>
+        <table id="route"></table>
+      </div>
+      <div class="card">
+        <h2>Crew excavation &amp; dispatch plan</h2>
+        <p class="desc">Model C (GenAI): the day's dig list and truck dispatch for site crews,
+          generated from the optimiser's output.</p>
+        <pre id="crew">...</pre>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const COLORS = { green: "#2ecc71", amber: "#f39c12", red: "#e74c3c" };
+    const map = L.map("map").setView([28.6257, 77.3277], 12);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+      { maxZoom: 19, attribution: "&copy; OpenStreetMap" }).addTo(map);
+    const layer = L.layerGroup().addTo(map);
+
+    let hour = 0;
+    const heat = document.getElementById("heat");
+
+    function render(s) {
+      layer.clearLayers();
+      // Ghazipur centre
+      L.marker([s.ghazipur.lat, s.ghazipur.lon]).addTo(layer).bindTooltip("Ghazipur landfill");
+      // routing lines to plants
+      s.plants.forEach(p => {
+        if (p.tonnes > 0) {
+          L.polyline([[s.ghazipur.lat, s.ghazipur.lon], [p.lat, p.lon]],
+            { color: "#555", weight: Math.max(1, p.tonnes / 300), opacity: .6 }).addTo(layer);
+        }
+        L.circleMarker([p.lat, p.lon], { radius: 6, color: "#2c3e50", fillColor: "#2c3e50",
+          fillOpacity: .9 }).addTo(layer).bindTooltip(`${p.name} (${p.tonnes} t)`);
+      });
+      // zones - radius grows with risk so high-risk zones visibly swell
+      s.zones.forEach(z => {
+        L.circleMarker([z.lat, z.lon], { radius: 9 + z.risk * 45, color: "#333", weight: 1,
+          fillColor: COLORS[z.color], fillOpacity: .85 }).addTo(layer)
+          .bindTooltip(`Zone ${z.zone_id}: risk ${(z.risk*100).toFixed(1)}%`);
+      });
+
+      // live readouts
+      const maxRisk = Math.max(...s.zones.map(z => z.risk));
+      const atRisk = s.zones.filter(z => z.color !== "green").length;
+      const mr = document.getElementById("maxrisk");
+      mr.textContent = "max risk " + (maxRisk * 100).toFixed(0) + "%";
+      mr.style.background = maxRisk >= 0.15 ? COLORS.red : (maxRisk >= 0.05 ? COLORS.amber : COLORS.green);
+      document.getElementById("atrisk").textContent = atRisk + "/12 zones at risk";
+      document.getElementById("target").textContent = "excavate " + s.excavation_target.toLocaleString() + " t/day";
+      document.getElementById("unalloc").textContent = "unallocated " + Math.round(s.total_unallocated).toLocaleString() + " t";
+      document.getElementById("clock").textContent = s.timestamp;
+      document.getElementById("wind").textContent = "wind from " + s.wind_from_deg + "°";
+
+      const wm = document.getElementById("wmode");
+      if (s.weather_mode === "live" && s.live_weather) {
+        const lw = s.live_weather;
+        wm.textContent = `weather: LIVE ${lw.ambient_temp_c.toFixed(0)}°C / ${lw.humidity_pct.toFixed(0)}% RH`;
+        wm.style.background = COLORS.green;
+      } else if (s.weather_mode === "live-unavailable") {
+        wm.textContent = "weather: live unavailable → simulated";
+        wm.style.background = "#e67e22";
+      } else {
+        wm.textContent = "weather: SIMULATED";
+        wm.style.background = "rgba(255,255,255,.15)";
+      }
+      document.getElementById("alert").textContent = s.resident_alert;
+      document.getElementById("crew").textContent = s.crew_plan;
+
+      let dig = "<tr><th>#</th><th>Zone</th><th>Risk</th><th>Dig (t)</th></tr>";
+      s.dig_order.forEach((d, i) => {
+        dig += `<tr><td>${i+1}</td><td>${d.zone_id}</td><td>${(d.risk*100).toFixed(1)}%</td><td>${d.excavate_tonnes.toLocaleString()}</td></tr>`;
+      });
+      document.getElementById("dig").innerHTML = dig;
+
+      let rt = "<tr><th>Fraction</th><th>Plant</th><th>t</th><th>km</th></tr>";
+      s.routing.forEach(r => {
+        rt += `<tr><td>${r.fraction}</td><td>${r.plant}</td><td>${r.tonnes.toLocaleString()}</td><td>${r.distance_km}</td></tr>`;
+      });
+      if (s.total_unallocated > 0) {
+        rt += `<tr><td colspan="4" style="color:#c0392b">Unallocated: ${JSON.stringify(s.unallocated)}</td></tr>`;
+      }
+      document.getElementById("route").innerHTML = rt;
+    }
+
+    const live = document.getElementById("live");
+    function refresh() {
+      fetch(`/api/state?hour=${hour}&heatwave=${heat.value}&live=${live.checked ? 1 : 0}`)
+        .then(r => r.json()).then(render).catch(console.error);
+    }
+
+    heat.addEventListener("input", () => {
+      document.getElementById("heatval").textContent = heat.value + "%";
+      refresh();
+    });
+    live.addEventListener("change", refresh);
+
+    // advance one simulated hour every 3 seconds
+    refresh();
+    setInterval(() => { hour += 1; refresh(); }, 3000);
+  </script>
+</body>
+</html>

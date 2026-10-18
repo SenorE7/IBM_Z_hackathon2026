@@ -1,0 +1,19 @@
+# Runtime dependencies for the Ghazipur Landfill Fire & Contamination Shield.
+# Pinned to the versions the project was built and tested with.
+#
+# Pure-Python: Flask, networkx, joblib.
+# CPU-only compiled: numpy, pandas, scipy, scikit-learn - available on IBM LinuxONE / s390x
+# via wheels or a source build (see docs/setup_linuxone.md). No GPU, no pyarrow, no Streamlit.
+
+Flask==3.1.3
+pandas==3.0.6
+numpy==2.5.4
+scikit-learn==1.9.1
+scipy==1.18.1
+joblib==1.6.0
+networkx==3.7
+
+# Optional - only needed to retrain Model A / run the notebook:
+# notebook==7.6.3
+# nbconvert==7.17.2
+# ipykernel==7.4.0
